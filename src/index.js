@@ -4,35 +4,48 @@ import { PrismaClient } from "./generated/prisma/client.ts";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 
+import { buildAuthRouter } from "./routes/auth.js";
+import { buildUserRouter } from "./routes/users.js";
+import { buildPostRouter } from "./routes/posts.js";
+import { buildInteractionRouter } from "./routes/interactions.js";
+import { handleErrors } from "./middleware/errorHandler.js";
+
 const { Pool } = pg;
 
-const app = express();
+const srv = express();
 
-app.use(express.json());
+srv.use(express.json());
 
-const pool = new Pool({
+const dbPool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
-const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
+const dbAdapter = new PrismaPg(dbPool);
+const db = new PrismaClient({ adapter: dbAdapter });
 
-app.get("/health", (req, res) => {
-  res.status(200).json({ status: "OK" });
+srv.get("/health", (req, res) => {
+  res.status(200).json({ status: "OK", timestamp: new Date().toISOString() });
 });
 
-async function testConnection() {
+srv.use("/api/auth", buildAuthRouter(db));
+srv.use("/api/users", buildUserRouter(db));
+srv.use("/api/posts", buildPostRouter(db));
+srv.use("/api/posts", buildInteractionRouter(db));
+
+srv.use(handleErrors);
+
+async function boot() {
   try {
-    await prisma.$queryRaw`SELECT 1`;
-    console.log("✅ Database connection successful");
-  } catch (error) {
-    console.error("❌ Database connection failed");
-    console.error(error);
+    await db.$queryRaw`SELECT 1`;
+    console.log("Database connection successful");
+  } catch (err) {
+    console.error("Database connection failed:", err.message);
   }
+
+  const PORT = process.env.PORT || 3000;
+  srv.listen(PORT, () => {
+    console.log(`InstaLite server running on port ${PORT}`);
+  });
 }
 
-app.listen(3000, () => {
-  console.log("Server started on port 3000");
-});
-
-testConnection();
+boot();
